@@ -13,18 +13,28 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
-  run:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      skip: ${{ steps.gate.outputs.skip }}
     steps:
       - name: Skip if not target Eastern hour
+        id: gate
         if: github.event_name == 'schedule'
         run: |
           hour=$(TZ="America/New_York" date +%H)
           if [ "$hour" != "06" ] && [ "$hour" != "18" ]; then
             echo "Eastern hour is $hour, not 06 or 18 - skipping this run."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "SKIP=true" >> "$GITHUB_ENV"
           fi
 
@@ -55,9 +65,37 @@ jobs:
         if: env.SKIP != 'true'
         run: python job_tracker.py --no-open
 
-      - name: Upload report
+      - name: Upload report (workflow artifact)
         if: env.SKIP != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: job-tracker-report
           path: report.html
+
+      - name: Prepare Pages site
+        if: env.SKIP != 'true'
+        run: |
+          mkdir _site
+          cp report.html _site/index.html
+
+      - name: Setup Pages
+        if: env.SKIP != 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: env.SKIP != 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

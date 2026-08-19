@@ -56,7 +56,7 @@ STATUS_META = {
 SUMMARY_STATUSES = ["Applied", "Interview", "Offer", "Rejected"]
 
 DEFAULT_QUERY = (
-    "in:inbox newer_than:1y "
+    "in:inbox newer_than:3m "
     '(subject:("your application" OR "application for" OR "applying to" OR '
     '"thank you for applying" OR interview OR "job offer" OR '
     '"offer letter" OR "pleased to offer" OR candidacy OR "hiring process") '
