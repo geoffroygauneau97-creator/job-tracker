@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Skip if not target Eastern hour
+        if: github.event_name == 'schedule'
         run: |
           hour=$(TZ="America/New_York" date +%H)
           if [ "$hour" != "06" ] && [ "$hour" != "18" ]; then
