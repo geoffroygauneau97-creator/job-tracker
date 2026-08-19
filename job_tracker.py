@@ -48,7 +48,7 @@ REPORT_FILE = SCRIPT_DIR / "report.html"
 
 # status -> (badge css class, dot color token, sentence-case label)
 STATUS_META = {
-    "Applied":   ("badge-applied",   "--info-blue",       "Applied"),
+    "Applied":   ("badge-applied",   "--info-blue",       "Pending"),
     "Interview": ("badge-interview", "--status-warning",  "Interview"),
     "Offer":     ("badge-offer",     "--status-good",      "Offer"),
     "Rejected":  ("badge-rejected",  "--status-critical",  "Rejected"),
