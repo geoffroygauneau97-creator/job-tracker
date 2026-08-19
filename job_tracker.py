@@ -18,6 +18,7 @@ import webbrowser
 from datetime import datetime
 from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import truststore
 
@@ -40,6 +41,7 @@ from googleapiclient.errors import HttpError
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+EASTERN = ZoneInfo("America/New_York")
 CREDENTIALS_FILE = SCRIPT_DIR / "credentials.json"
 TOKEN_FILE = SCRIPT_DIR / "token.json"
 REPORT_FILE = SCRIPT_DIR / "report.html"
@@ -581,8 +583,8 @@ def render_html(entries, oldest_first):
         <td data-sort="{html.escape(label, quote=True)}"><span class="badge {css_class}">{html.escape(label)}</span></td>
       </tr>''')
 
-    now = datetime.now()
-    generated_at = f"{now:%B} {now.day}, {now:%Y} at {(now.hour - 1) % 12 + 1}:{now:%M %p}"
+    now = datetime.now(EASTERN)
+    generated_at = f"{now:%B} {now.day}, {now:%Y} at {(now.hour - 1) % 12 + 1}:{now:%M %p} {now:%Z}"
 
     role_blank_count = sum(1 for e in entries if not e["role"])
     company_blank_count = sum(1 for e in entries if not e["company"])
