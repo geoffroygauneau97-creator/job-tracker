@@ -1,0 +1,62 @@
+name: Job Tracker
+
+on:
+  schedule:
+    # 6:00 AM and 6:00 PM US Eastern. Both EDT (UTC-4) and EST (UTC-5) crons
+    # are listed since GitHub Actions cron is UTC-only and doesn't shift for
+    # DST; the "Skip if not target hour" step below discards the extra runs.
+    - cron: '0 10 * * *'  # 6:00 AM EDT
+    - cron: '0 11 * * *'  # 6:00 AM EST
+    - cron: '0 22 * * *'  # 6:00 PM EDT
+    - cron: '0 23 * * *'  # 6:00 PM EST
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Skip if not target Eastern hour
+        run: |
+          hour=$(TZ="America/New_York" date +%H)
+          if [ "$hour" != "06" ] && [ "$hour" != "18" ]; then
+            echo "Eastern hour is $hour, not 06 or 18 - skipping this run."
+            echo "SKIP=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout
+        if: env.SKIP != 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: env.SKIP != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        if: env.SKIP != 'true'
+        run: pip install -r requirements.txt
+
+      - name: Restore Gmail auth files
+        if: env.SKIP != 'true'
+        env:
+          GMAIL_CREDENTIALS_JSON: ${{ secrets.GMAIL_CREDENTIALS_JSON }}
+          GMAIL_TOKEN_JSON: ${{ secrets.GMAIL_TOKEN_JSON }}
+        run: |
+          printf '%s' "$GMAIL_CREDENTIALS_JSON" > credentials.json
+          printf '%s' "$GMAIL_TOKEN_JSON" > token.json
+
+      - name: Run job tracker
+        if: env.SKIP != 'true'
+        run: python job_tracker.py --no-open
+
+      - name: Upload report
+        if: env.SKIP != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-tracker-report
+          path: report.html
