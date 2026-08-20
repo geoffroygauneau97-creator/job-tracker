@@ -4,12 +4,25 @@ on:
   schedule:
     # 6:00 AM and 6:00 PM US Eastern. Both EDT (UTC-4) and EST (UTC-5) crons
     # are listed since GitHub Actions cron is UTC-only and doesn't shift for
-    # DST; the "Skip if not target hour" step below discards the extra runs.
+    # DST; the "Skip if not the DST-matching schedule slot" step below
+    # discards whichever of each pair isn't the currently-active one. If you
+    # ever change these four lines, update the matching `case` in that step
+    # too - they have to stay in sync.
     - cron: '0 10 * * *'  # 6:00 AM EDT
     - cron: '0 11 * * *'  # 6:00 AM EST
     - cron: '0 22 * * *'  # 6:00 PM EDT
     - cron: '0 23 * * *'  # 6:00 PM EST
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      simulate_schedule:
+        description: >-
+          Test only: pretend this manual run was triggered by one of the four
+          cron strings above (paste one in exactly, e.g. "0 10 * * *"), so you
+          can verify the DST guard on demand instead of waiting for a real
+          6am/6pm slot. Leave blank for a normal manual run (guard skipped,
+          job always does real work).
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -27,15 +40,59 @@ jobs:
     outputs:
       skip: ${{ steps.gate.outputs.skip }}
     steps:
-      - name: Skip if not target Eastern hour
+      - name: Skip if not the DST-matching schedule slot
         id: gate
-        if: github.event_name == 'schedule'
+        # Runs on every real schedule trigger, and also on a manual run that
+        # supplies simulate_schedule (see the workflow_dispatch input above)
+        # so the guard's logic can be exercised on demand.
+        if: github.event_name == 'schedule' || github.event.inputs.simulate_schedule != ''
         run: |
-          hour=$(TZ="America/New_York" date +%H)
-          if [ "$hour" != "06" ] && [ "$hour" != "18" ]; then
-            echo "Eastern hour is $hour, not 06 or 18 - skipping this run."
+          schedule="${{ github.event.schedule || github.event.inputs.simulate_schedule }}"
+
+          # Which DST offset *should* be active for this cron slot to be the
+          # real one (as opposed to its EDT/EST-paired duplicate)?
+          case "$schedule" in
+            '0 10 * * *'|'0 22 * * *') expected=EDT ;;
+            '0 11 * * *'|'0 23 * * *') expected=EST ;;
+            *) expected="" ;;
+          esac
+
+          # Compare against the *current DST regime* (EDT vs EST), not the
+          # current clock hour. This is the actual fix: the previous version
+          # compared today's Eastern hour against "06"/"18" at the moment
+          # this step happened to run - but GitHub Actions documents that
+          # scheduled workflows can be delayed, especially right at the top
+          # of the hour (when literally every cron on GitHub fires, this
+          # workflow's own four included). A delayed run reads a later
+          # wall-clock hour and the correct slot got treated as a mismatch.
+          # EDT/EST only flips twice a year, so it's stable across any
+          # realistic scheduling delay, which is what makes it a safe thing
+          # to gate on instead.
+          offset=$(TZ="America/New_York" date +%Z)
+
+          summary="cron slot \`$schedule\` expects $expected, current Eastern offset is $offset"
+
+          if [ -z "$expected" ] || [ "$offset" != "$expected" ]; then
+            echo "SKIP: $summary - not the active slot, the EDT/EST-paired cron is the real one this time of year."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "SKIP=true" >> "$GITHUB_ENV"
+            {
+              echo "### :fast_forward: Job tracker run SKIPPED"
+              echo
+              echo "$summary."
+              echo
+              echo "This is expected: this workflow lists both the EDT and EST UTC times for"
+              echo "each Eastern target hour, since GitHub cron doesn't shift for DST. The"
+              echo "other paired cron is the one doing real work today."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=Job tracker skipped::${summary}. No report was generated, deploy was skipped."
+          else
+            echo "RUN: $summary - this is the active slot, proceeding."
+            {
+              echo "### :white_check_mark: Job tracker run: doing real work"
+              echo
+              echo "$summary."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Checkout
@@ -87,6 +144,19 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
+      - name: Build result
+        # Always runs, even if the gate step above never ran at all (a plain
+        # manual workflow_dispatch with no simulate_schedule input) - so
+        # every run's summary page states outright whether real work
+        # happened, instead of that only being visible by reading logs.
+        if: always()
+        run: |
+          if [ "${{ steps.gate.outputs.skip }}" = "true" ]; then
+            echo "Result: **skipped** - see the gate step above for why." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Result: ran the real job and produced a report." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   deploy:
     needs: build
